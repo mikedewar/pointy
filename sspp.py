@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 import logging
-import pylab as pb
 import scipy.optimize
 
 logging.basicConfig(
@@ -10,8 +9,8 @@ logging.basicConfig(
     datefmt='%I:%M:%S'
 )
 
-maxiter = 10000000
-f_tol = 1e-3
+maxiter = 1000
+f_tol = 1e-4
 logging.info('max number of iterations: %s'%maxiter)
 logging.info('tolerance: %s'%f_tol)
 
@@ -27,11 +26,17 @@ def forward(xposterior, sigmaposterior, u, y, delta, rho,
             beta * (y - delta*np.exp(mu + beta*xposterior))
         return xposterior - rhs
 
+    def Fprime(xposterior):
+        return 1 - (sigmaprior * beta**2 * delta * np.exp(mu + beta*xposterior))
+
     try:
         xposterior = scipy.optimize.broyden1(F,xprior,maxiter=maxiter,f_tol=f_tol)
     except:
         logging.warn("xprior:%s"%xprior)
+        logging.warn("σ_proir:%s"%sigmaprior)
         logging.warn("residual: %s"%(y - delta*np.exp(mu + beta*xposterior)))
+        logging.warn("Fprime: %s"%(Fprime(xprior)))
+        raise
         xposterior = xprior
 
     sigmaposterior = -(-sigmaprior**-1 - (
@@ -50,7 +55,7 @@ def forwards_pass(x0,Y,I,delta,rho,alpha,beta,mu,sigma_eta):
     sigmaposterior = 1
     logging.info("starting forwards pass")
     for i,(y,u) in enumerate(zip(Y,I)):
-        logging.debug('forwards pass: iteration %s'%i)
+        logging.debug('forwards pass: time index %s'%i)
         xposterior, sigmaposterior = forward(xposterior, sigmaposterior, u, y,
                 delta, rho, alpha, beta, mu, sigma_eta)
         x.append(float(xposterior))
@@ -74,28 +79,3 @@ def sim(T,delta,x0,rho,alpha,beta,mu,sigma_eta):
         if np.random.rand() < pspike[i]:
             y[i] = 1 
     return x,y,I,t
-    
-
-if __name__ == "__main__":
-
-    T = 10
-    delta = 0.01
-    x0 = 0
-    rho = 0.9
-    alpha = 4
-    beta = 8
-    mu = 0
-    sigma_eta = 0.05
-
-    x,Y,I,t = sim(T,delta,x0,rho,alpha,beta,mu,sigma_eta)
-    xest, sigmaest = forwards_pass(x0,Y,I,delta,rho,alpha,beta,mu,sigma_eta)
-
-    for ti,y in zip(t,Y):
-        if y:
-            pb.plot([ti,ti], [0,1], 'r-')
-
-    pb.plot(t,x,label="true")
-    pb.plot(t,xest,label="est")
-    pb.legend()
-    pb.show()
-

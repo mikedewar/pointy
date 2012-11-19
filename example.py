@@ -5,8 +5,8 @@ T = 10
 delta = 0.01
 x0 = 0
 rho = 0.9
-alpha = 4
-beta = 8
+alpha = 2
+beta = 5
 mu = 0
 sigma_eta = 0.05
 
