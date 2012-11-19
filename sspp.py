@@ -35,7 +35,7 @@ def forward(xposterior, sigmaposterior, u, y, delta, rho,
         logging.warn("xprior:%s"%xprior)
         logging.warn("σ_proir:%s"%sigmaprior)
         logging.warn("residual: %s"%(y - delta*np.exp(mu + beta*xposterior)))
-        logging.warn("Fprime: %s"%(Fprime(xprior)))
+        logging.warn("F`: %s"%(Fprime(xprior)))
         raise
         xposterior = xprior
 
