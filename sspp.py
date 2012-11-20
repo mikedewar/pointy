@@ -3,16 +3,16 @@ import numpy as np
 import logging
 import scipy.optimize
 
+from config import config
+
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s %(levelname)s %(message)s',
     datefmt='%I:%M:%S'
 )
 
-maxiter = 1000
-f_tol = 1e-4
-logging.info('max number of iterations: %s'%maxiter)
-logging.info('tolerance: %s'%f_tol)
+logging.info('max number of iterations: %s'%config['maxiter'])
+logging.info('tolerance: %s'%config['f_tol'])
 
 def forward(xposterior, sigmaposterior, u, y, delta, rho, 
         alpha, beta, mu, sigma_eta):
@@ -30,7 +30,12 @@ def forward(xposterior, sigmaposterior, u, y, delta, rho,
         return 1 - (sigmaprior * beta**2 * delta * np.exp(mu + beta*xposterior))
 
     try:
-        xposterior = scipy.optimize.broyden1(F,xprior,maxiter=maxiter,f_tol=f_tol)
+        xposterior = scipy.optimize.broyden1(
+            F,
+            xprior,
+            maxiter=config['maxiter'],
+            f_tol=config['f_tol']
+        )
     except:
         logging.warn("xprior:%s"%xprior)
         logging.warn("σ_proir:%s"%sigmaprior)
