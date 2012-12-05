@@ -6,7 +6,7 @@ delta = 0.01
 x0 = 0
 rho = 0.9
 alpha = 2
-beta = 5
+beta = 6 
 mu = 0
 sigma_eta = 0.05
 
