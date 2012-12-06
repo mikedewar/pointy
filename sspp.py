@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
+# this is a simplified, poisson version of Smith and Brown 03
 import numpy as np
-import logging
 import scipy.optimize
-
-from config import config
+import functools
+import logging
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -11,76 +11,92 @@ logging.basicConfig(
     datefmt='%I:%M:%S'
 )
 
-logging.info('max number of iterations: %s'%config['maxiter'])
-logging.info('tolerance: %s'%config['f_tol'])
+# a little helper function to simulate the LDS
+def sim(fun, initial, T):
+    x = initial
+    for t in range(T):
+        yield x
+        x = fun(x)
 
-def forward(xposterior, sigmaposterior, u, y, delta, rho, 
-        alpha, beta, mu, sigma_eta):
+# a little wrapper for the optimise function
+config = {
+    "maxiter" : 1000,
+    "f_tol" : 1e-4
+}
 
-    xprior = rho*xposterior + alpha * u
-    sigmaprior = rho**2 * sigmaposterior + sigma_eta
-    
-    def F(xposterior): 
-        rhs = xprior + \
-            sigmaprior * \
-            beta * (y - delta*np.exp(mu + beta*xposterior))
-        return xposterior - rhs
+optimise = functools.partial(
+    scipy.optimize.broyden1, 
+    maxiter=config['maxiter'], 
+    f_tol=config['f_tol']
+)
 
-    def Fprime(xposterior):
-        return 1 - (sigmaprior * beta**2 * delta * np.exp(mu + beta*xposterior))
+# model
+# equation 1
+obs = lambda x: np.random.poisson(rate(x))
+# equation 2
+state = lambda x: np.random.normal(a*x, np.sqrt(sigma_w))
+# equation 3
+rate = lambda x: np.exp(beta*x)
 
+# forward filter
+# the next two lines are from equation 7
+predict = lambda x: a*x
+predict_variance = lambda sigma: a**2 * sigma + sigma_w
+# equation 14
+correct = lambda y, xp, sp: optimise(
+    lambda x: y*beta - beta * np.exp(beta*x) - (x - a*xp)*sp,
+    xp,
+)
+# equation 15
+correct_variance = lambda xp, sp: beta**2*np.exp(beta*xp) - sp
+
+
+# algorithm 1
+def update_posteriors(y,xposterior,sigmaposterior):
+    xprior = predict(xposterior)
+    sigmaprior = predict_variance(sigmaposterior)
     try:
-        xposterior = scipy.optimize.broyden1(
-            F,
-            xprior,
-            maxiter=config['maxiter'],
-            f_tol=config['f_tol']
-        )
-    except:
-        logging.warn("xprior:%s"%xprior)
-        logging.warn("σ_proir:%s"%sigmaprior)
-        logging.warn("residual: %s"%(y - delta*np.exp(mu + beta*xposterior)))
-        logging.warn("F`: %s"%(Fprime(xprior)))
-        raise
+        xposterior = correct(y,xprior,sigmaprior)
+    except scipy.optimize.nonlin.NoConvergence:
         xposterior = xprior
-
-    sigmaposterior = -(-sigmaprior**-1 - (
-        beta**2 * np.exp(mu + beta*xposterior)
-    ))**-1
-
+        logging.warn('convergence error')
+    sigmaposterior = correct_variance(xprior, sigmaprior)
     return xposterior, sigmaposterior
 
-def forwards_pass(x0,Y,I,delta,rho,alpha,beta,mu,sigma_eta):
-    logging.info(u'α: %s ρ: %s β: %s μ:%s σ_ε:%s'%(
-        alpha, rho, beta, mu, sigma_eta
-    ))
-    x = []
-    sigma = []
-    xposterior = x0
-    sigmaposterior = 1
-    logging.info("starting forwards pass")
-    for i,(y,u) in enumerate(zip(Y,I)):
-        logging.debug('forwards pass: time index %s'%i)
-        xposterior, sigmaposterior = forward(xposterior, sigmaposterior, u, y,
-                delta, rho, alpha, beta, mu, sigma_eta)
-        x.append(float(xposterior))
-        sigma.append(float(sigmaposterior))
-    logging.info("forwards pass is complete")
-    return x,sigma
+# parameters
+x0 = 2
+a = 0.9
+beta = 0.7
+sigma_w = 0.6
 
-def sim(T,delta,x0,rho,alpha,beta,mu,sigma_eta):
-    t = np.arange(0, T, delta)
-    N = len(t)
-    x = np.empty(N)
-    y = np.zeros(N)
-    I = np.zeros(N)
-    I[t.round()==t] = 1
-    beta = beta 
-    pspike = np.empty(N)
-    x[0] = rho*x0 + alpha*I[0] + np.sqrt(sigma_eta)*np.random.randn()
-    for i in range(1,N):
-        x[i] = rho*x[i-1] + alpha*I[i] + np.sqrt(sigma_eta)*np.random.randn()
-        pspike[i] = (np.exp(mu + beta*x[i])*delta)
-        if np.random.rand() < pspike[i]:
-            y[i] = 1 
-    return x,y,I,t
+# simulate
+T = 400
+X = list(sim(state,x0,T))
+Y = [obs(x) for x in X]
+sigma0 = 0.2
+
+# filter
+xpos = x0
+sigmapos = sigma0
+Xhat = []
+Sigmahat = []
+for y in Y:
+    xpos, sigmapos = update_posteriors(y,xpos,sigmapos)
+    Xhat.append(float(xpos))
+    Sigmahat.append(float(sigmapos))
+
+# plot
+import pylab as pb
+for i,y in enumerate(Y):
+    pb.plot([i,i], [0,y], 'k-',alpha=0.4)
+pb.plot(map(rate,X),label="true")
+pb.plot(map(rate,Xhat),label="est")
+upper = [rate(x)+rate(s) for x,s in zip(Xhat, Sigmahat)]
+lower = [rate(x)-rate(s) for x,s in zip(Xhat, Sigmahat)]
+lower = [0 if l < 0 else l for l in lower]
+pb.fill_between(range(len(X)),lower,upper,
+    facecolor="gray",alpha=0.1,edgecolor=None)
+pb.xlabel('k')
+pb.ylabel('$\lambda(x_k)$')
+pb.legend()
+pb.show()
