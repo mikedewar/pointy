@@ -44,59 +44,77 @@ predict = lambda x: a*x
 predict_variance = lambda sigma: a**2 * sigma + sigma_w
 # equation 14
 correct = lambda y, xp, sp: optimise(
-    lambda x: y*beta - beta * np.exp(beta*x) - (x - a*xp)*sp,
+    lambda x: y*beta - beta * np.exp(beta*x) - (x - xp)*sp**-1,
     xp,
 )
 # equation 15
-correct_variance = lambda xp, sp: beta**2*np.exp(beta*xp) - sp
-
+correct_variance = lambda xp, sp: -1.0/(-beta**2*np.exp(beta*xp) - sp**-1)
 
 # algorithm 1
-def update_posteriors(y,xposterior,sigmaposterior):
+def update_posteriors(y,xposterior,sigmaposterior,i):
     xprior = predict(xposterior)
     sigmaprior = predict_variance(sigmaposterior)
+    assert sigmaprior > 0, (sigmaprior,i)
     try:
         xposterior = correct(y,xprior,sigmaprior)
     except scipy.optimize.nonlin.NoConvergence:
         xposterior = xprior
         logging.warn('convergence error')
+        if i:
+            logging.warn('step %s'%i)
+    except: 
+        logging.info('y: %s, xprior: %s, sigmaprior: %s'%(y, xprior, sigmaprior))
+        raise
     sigmaposterior = correct_variance(xprior, sigmaprior)
+    if sigmaposterior < 0:
+        logging.warn('negative variance averted at step %s'%i)
+        sigmaposterior = sigmaprior
+    assert sigmaposterior > 0, (sigmaposterior,sigmaprior,i)
     return xposterior, sigmaposterior
 
 # parameters
 x0 = 2
 a = 0.9
-beta = 0.7
-sigma_w = 0.6
+beta = 0.5
+sigma_w = 1
 
 # simulate
-T = 400
+T = 200
 X = list(sim(state,x0,T))
 Y = [obs(x) for x in X]
-sigma0 = 0.2
+sigma0 = 1 
+#Y = [y if i < 100 else 0 for i,y in enumerate(Y)]
+
 
 # filter
 xpos = x0
 sigmapos = sigma0
 Xhat = []
 Sigmahat = []
-for y in Y:
-    xpos, sigmapos = update_posteriors(y,xpos,sigmapos)
+for i,y in enumerate(Y):
+    xpos, sigmapos = update_posteriors(y,xpos,sigmapos,i)
     Xhat.append(float(xpos))
     Sigmahat.append(float(sigmapos))
 
 # plot
 import pylab as pb
+pb.subplot(3,1,1)
 for i,y in enumerate(Y):
     pb.plot([i,i], [0,y], 'k-',alpha=0.4)
+pb.ylabel('$y_k$')
+pb.subplot(3,1,2)
 pb.plot(map(rate,X),label="true")
 pb.plot(map(rate,Xhat),label="est")
-upper = [rate(x)+rate(s) for x,s in zip(Xhat, Sigmahat)]
-lower = [rate(x)-rate(s) for x,s in zip(Xhat, Sigmahat)]
-lower = [0 if l < 0 else l for l in lower]
+pb.xlabel('$k$')
+pb.ylabel('$\lambda(x_k)$')
+pb.legend()
+pb.subplot(3,1,3)
+pb.plot(X,label="true")
+pb.plot(Xhat,label="est")
+upper = [x+s for x,s in zip(Xhat, Sigmahat)]
+lower = [x-s for x,s in zip(Xhat, Sigmahat)]
 pb.fill_between(range(len(X)),lower,upper,
     facecolor="gray",alpha=0.1,edgecolor=None)
-pb.xlabel('k')
-pb.ylabel('$\lambda(x_k)$')
+pb.ylabel('$x_k$')
 pb.legend()
 pb.show()
