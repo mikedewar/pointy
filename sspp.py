@@ -30,7 +30,7 @@ optimise = functools.partial(
     f_tol=config['f_tol']
 )
 
-# model
+#### MODEL
 # equation 1
 obs = lambda x: np.random.poisson(rate(x))
 # equation 2
@@ -38,7 +38,7 @@ state = lambda x: np.random.normal(a*x, np.sqrt(sigma_w))
 # equation 3
 rate = lambda x: np.exp(beta*x)
 
-# forward filter
+#### FILTER
 # the next two lines are from equation 7
 predict = lambda x: a*x
 predict_variance = lambda sigma: a**2 * sigma + sigma_w
@@ -51,26 +51,64 @@ correct = lambda y, xp, sp: optimise(
 correct_variance = lambda xp, sp: -1.0/(-beta**2*np.exp(beta*xp) - sp**-1)
 
 # algorithm 1
-def update_posteriors(y,xposterior,sigmaposterior,i):
-    xprior = predict(xposterior)
-    sigmaprior = predict_variance(sigmaposterior)
-    assert sigmaprior > 0, (sigmaprior,i)
-    try:
+def filter(x0, sigma0, Y):
+
+    def update(y,xposterior,sigmaposterior,i):
+        xprior = predict(xposterior)
+        sigmaprior = predict_variance(sigmaposterior)
         xposterior = correct(y,xprior,sigmaprior)
-    except scipy.optimize.nonlin.NoConvergence:
-        xposterior = xprior
-        logging.warn('convergence error')
-        if i:
-            logging.warn('step %s'%i)
-    except: 
-        logging.info('y: %s, xprior: %s, sigmaprior: %s'%(y, xprior, sigmaprior))
-        raise
-    sigmaposterior = correct_variance(xprior, sigmaprior)
-    if sigmaposterior < 0:
-        logging.warn('negative variance averted at step %s'%i)
-        sigmaposterior = sigmaprior
-    assert sigmaposterior > 0, (sigmaposterior,sigmaprior,i)
-    return xposterior, sigmaposterior
+        sigmaposterior = correct_variance(xprior, sigmaprior)
+        if sigmaposterior < 0:
+            raise ValueError('negative variance at step %s'%i)
+        return xprior, sigmaprior, xposterior, sigmaposterior
+
+    xpos = x0
+    sigmapos = sigma0
+    Xhat = []
+    Xpred = []
+    Sigmahat = []
+    Sigmapred = []
+    for i,y in enumerate(Y):
+        xprior, sigmaprior, xpos, sigmapos = update(y,xpos,sigmapos,i)
+        Xpred.append(float(xprior))
+        Xhat.append(float(xpos))
+        Sigmapred.append(float(sigmaprior))
+        Sigmahat.append(float(sigmapos))
+
+    return Xpred, Xhat, Sigmapred, Sigmahat
+
+### SMOOTHER 
+
+# x1 = x_{k|k}
+# x2 = x_{k+1|K}
+# x3 = x_{k+1|k}
+# p1 = p_{k|k-1}
+# p2 = p_{k+1|k}
+# p3 = p_{k|k}
+# p4 = p_{k+1|K}
+
+# equation 18
+S = lambda p1, p2: p1*a*p2**-1
+# equation 16
+smooth_state = lambda x1, x2, x3, p1, p2: x1 + S(p1,p2)*(x2-x3)
+# equation 17
+smooth_var = lambda p1, p2, p3, p4: p3 + S(p1,p2)*(p4-p2)*S(p1,p2)
+
+# algorithm 2
+def smooth(X,Xpred,P,Ppred):
+    Xsmooth = [0 for x in X]
+    Psmooth = [0 for x in X]
+    Xsmooth[-1] = X[-1]
+    Psmooth[-1] = P[-1]
+    for k in reversed(range(len(X)-1)):
+        Xsmooth[k] = smooth_state(X[k], Xsmooth[k+1], Xpred[k+1], Ppred[k], Ppred[k+1])
+        Psmooth[k] = smooth_var(Ppred[k], Ppred[k+1], P[k], Psmooth[k+1])
+    return Xsmooth, Psmooth
+
+def E_step(x0, sigma0, Y):
+    Xpred, Xhat, Sigmapred, Sigmahat = filter(x0, sigma0, Y)
+    Xpost, Sigmapost = smooth(Xhat, Xpred, Sigmahat, Sigmapred)
+    return Xpost, Sigmapost
 
 # parameters
 x0 = 2
@@ -85,16 +123,7 @@ Y = [obs(x) for x in X]
 sigma0 = 1 
 #Y = [y if i < 100 else 0 for i,y in enumerate(Y)]
 
-
-# filter
-xpos = x0
-sigmapos = sigma0
-Xhat = []
-Sigmahat = []
-for i,y in enumerate(Y):
-    xpos, sigmapos = update_posteriors(y,xpos,sigmapos,i)
-    Xhat.append(float(xpos))
-    Sigmahat.append(float(sigmapos))
+Xhat, Sigmahat = E_step(x0, sigma0, Y)
 
 # plot
 import pylab as pb
