@@ -88,9 +88,9 @@ def filter(x0, sigma0, Y):
 # p4 = p_{k+1|K}
 
 # equation 18
-S = lambda p1, p2: p1*a*p2**-1
+S = lambda p3, p2: p3*a*p2**-1
 # equation 16
-smooth_state = lambda x1, x2, x3, p1, p2: x1 + S(p1,p2)*(x2-x3)
+smooth_state = lambda x1, x2, x3, p3, p2: x1 + S(p3,p2)*(x2-x3)
 # equation 17
 smooth_var = lambda p1, p2, p3, p4: p3 + S(p1,p2)*(p4-p2)*S(p1,p2)
 
@@ -101,14 +101,14 @@ def smooth(X,Xpred,P,Ppred):
     Xsmooth[-1] = X[-1]
     Psmooth[-1] = P[-1]
     for k in reversed(range(len(X)-1)):
-        Xsmooth[k] = smooth_state(X[k], Xsmooth[k+1], Xpred[k+1], Ppred[k], Ppred[k+1])
+        Xsmooth[k] = smooth_state(X[k], Xsmooth[k+1], Xpred[k+1], P[k], Ppred[k+1])
         Psmooth[k] = smooth_var(Ppred[k], Ppred[k+1], P[k], Psmooth[k+1])
     return Xsmooth, Psmooth
 
 def E_step(x0, sigma0, Y):
     Xpred, Xhat, Sigmapred, Sigmahat = filter(x0, sigma0, Y)
     Xpost, Sigmapost = smooth(Xhat, Xpred, Sigmahat, Sigmapred)
-    return Xpost, Sigmapost
+    return Xhat, Xpost, Sigmapost
 
 # parameters
 x0 = 2
@@ -123,7 +123,7 @@ Y = [obs(x) for x in X]
 sigma0 = 1 
 #Y = [y if i < 100 else 0 for i,y in enumerate(Y)]
 
-Xhat, Sigmahat = E_step(x0, sigma0, Y)
+Xfilter, Xsmooth, Sigmasmooth = E_step(x0, sigma0, Y)
 
 # plot
 import pylab as pb
@@ -133,17 +133,19 @@ for i,y in enumerate(Y):
 pb.ylabel('$y_k$')
 pb.subplot(3,1,2)
 pb.plot(map(rate,X),label="true")
-pb.plot(map(rate,Xhat),label="est")
-pb.xlabel('$k$')
+pb.plot(map(rate,Xsmooth),label="smooth")
+pb.plot(map(rate,Xfilter),label="filter")
 pb.ylabel('$\lambda(x_k)$')
 pb.legend()
 pb.subplot(3,1,3)
 pb.plot(X,label="true")
-pb.plot(Xhat,label="est")
-upper = [x+s for x,s in zip(Xhat, Sigmahat)]
-lower = [x-s for x,s in zip(Xhat, Sigmahat)]
+pb.plot(Xsmooth,label="smooth")
+pb.plot(Xfilter,label="filter")
+upper = [x+s for x,s in zip(Xsmooth, Sigmasmooth)]
+lower = [x-s for x,s in zip(Xsmooth, Sigmasmooth)]
 pb.fill_between(range(len(X)),lower,upper,
     facecolor="gray",alpha=0.1,edgecolor=None)
 pb.ylabel('$x_k$')
+pb.xlabel('$k$')
 pb.legend()
 pb.show()
